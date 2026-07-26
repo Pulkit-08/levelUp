@@ -68,9 +68,9 @@ nav { display: grid; gap: 6px; margin-top: 49px; }
 @media (max-width: 720px) {
   .mobile-menu-toggle { display: grid; place-items: center; width: 38px; height: 38px; border: 0; background: transparent; color: #e8e8e4; font-size: 24px; padding: 0; margin-right: 9px; }
   .mobile-logo { margin-right: auto; }.page { padding-bottom: 48px; }
-  .mobile-nav { display: block; position: fixed; z-index: 30; inset: 0; pointer-events: none; background: transparent; transition: background .2s; }
+  .mobile-nav { display: block; position: fixed; z-index: 100; inset: 0; width: 100%; height: 100dvh; padding: 0; overflow: hidden; border: 0; pointer-events: none; background: transparent; transition: background .2s; }
   .mobile-nav.open { pointer-events: auto; background: #0008; }.mobile-nav-backdrop { position: absolute; inset: 0; width: 100%; border: 0; background: transparent; }
   .mobile-nav-drawer { position: relative; width: min(285px, 84vw); min-height: 100%; padding: 23px 16px; background: #171819; border-right: 1px solid #303331; transform: translateX(-100%); transition: transform .2s; overflow-y: auto; }
-  .mobile-nav.open .mobile-nav-drawer { transform: translateX(0); }.mobile-nav-drawer .nav-item { width: 100%; }.mobile-nav-close { float: right; border: 0; background: transparent; color: #c8cbc7; font-size: 27px; line-height: 1; padding: 4px 8px; }
+  .mobile-nav.open .mobile-nav-drawer { transform: translateX(0); }.mobile-nav-drawer .nav-item { width: 100%; height: 46px; display: flex; place-items: initial; color: #8f9291; font-size: 14px; padding: 0 14px; }.mobile-nav-close { float: right; border: 0; background: transparent; color: #c8cbc7; font-size: 27px; line-height: 1; padding: 4px 8px; }
   .mobile-nav-drawer .nav-group:first-of-type { margin-top: 45px; }.tracker-table { min-width: 930px; }.tracker-header, .tracker-row { grid-template-columns: minmax(230px, 1.9fr) repeat(8, 76px) 42px; }
 }
