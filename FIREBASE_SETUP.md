@@ -16,6 +16,6 @@ service cloud.firestore {
 }
 ```
 
-5. Run `npm run dev`, then use **Continue with Google**. Use that same Google account on every device.
+5. Run `npm run dev`, then use **Continue with Google**. Use that same Google account on every device. Wellness PDFs and other uploaded files stay only in the browser where they were added; no Firebase Storage account is required.
 
 For a deployed app, add its domain in **Authentication → Settings → Authorized domains**.
