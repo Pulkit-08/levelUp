@@ -165,6 +165,7 @@ function App() {
       {page === 'history' && <History habits={habits} />}
       {page === 'settings' && <section className="page simple-page"><p className="eyebrow">PREFERENCES</p><h1>Settings</h1><p>Your habits are stored securely in this browser.</p></section>}
     </main>
+    <MobileNav page={page} setPage={setPage} user={user} onLogout={() => signOut(auth)} />
     <button className="floating-add" onClick={page.startsWith('expense') || page === 'expenses' || page === 'payments' ? goExpenseAdd : goAdd}>+</button>
   </div>
 }
@@ -180,6 +181,15 @@ function LoginPage({ onLogin, error }) {
 }
 
 function Nav({ item, label, page, setPage, expense }) { const destination = expense ? (item === 'history' ? 'expense-history' : 'expense-stats') : item; return <button className={`nav-item ${page === destination ? 'active' : ''}`} onClick={() => setPage(destination)}><span>{icons[item]}</span>{label}</button> }
+function MobileNav({ page, setPage, user, onLogout }) {
+  const expenseActive = page === 'expenses' || page.startsWith('expense') || page === 'payments'
+  return <nav className="mobile-nav" aria-label="Main navigation">
+    <button className={page === 'dashboard' ? 'active' : ''} onClick={() => setPage('dashboard')}><span>{icons.dashboard}</span>Overview</button>
+    <button className={page === 'habits' || page === 'add' || page === 'history' || page === 'stats' ? 'active' : ''} onClick={() => setPage('habits')}><span>{icons.habits}</span>Habits</button>
+    <button className={expenseActive ? 'active' : ''} onClick={() => setPage('expenses')}><span>{icons.expenses}</span>Expenses</button>
+    {user && <button className="logout" onClick={onLogout}><span>↪</span>Log out</button>}
+  </nav>
+}
 function Profile({ user }) { const name = user?.displayName || 'Your habit space'; const initial = name.charAt(0).toUpperCase(); return <div className="profile">{user?.photoURL ? <img className="avatar" src={user.photoURL} alt="" referrerPolicy="no-referrer" /> : <div className="avatar">{initial}</div>}<div><strong>{name}</strong><small>{user?.email || 'Make it count.'}</small></div><span>⌄</span></div> }
 
 function Dashboard({ habits, stats, onToggle, onToggleDate, onAdd, onEdit, menuOpen, setMenuOpen, onDelete }) {
