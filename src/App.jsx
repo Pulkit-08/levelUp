@@ -137,8 +137,8 @@ function App() {
     <aside className="sidebar">
       <button className="brand" onClick={() => setPage('dashboard')}><span className="brand-mark">L</span><span>{appName}</span></button>
       <nav>
-        <p className="nav-group">HABIT MANAGER</p>
         <Nav item="dashboard" label="Overview" page={page} setPage={setPage} />
+        <p className="nav-group">HABIT MANAGER</p>
         <Nav item="habits" label="My habits" page={page} setPage={setPage} />
         <Nav item="stats" label="Stats" page={page} setPage={setPage} />
         <Nav item="history" label="History" page={page} setPage={setPage} />
