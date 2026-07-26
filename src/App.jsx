@@ -164,6 +164,7 @@ function App() {
       {page === 'payments' && <PaymentModes modes={paymentModes} setModes={setPaymentModes} />}
       {page === 'history' && <History habits={habits} />}
       {page === 'settings' && <section className="page simple-page"><p className="eyebrow">PREFERENCES</p><h1>Settings</h1><p>Your habits are stored securely in this browser.</p></section>}
+      <footer className="site-footer">Conceptualized and developed by <a href="https://www.linkedin.com/in/pulkit-singh-80a66917a/" target="_blank" rel="noreferrer">Pulkit Singh <span aria-hidden="true">↗</span></a></footer>
     </main>
     <MobileNav page={page} setPage={setPage} user={user} onLogout={() => signOut(auth)} />
     <button className="floating-add" onClick={page.startsWith('expense') || page === 'expenses' || page === 'payments' ? goExpenseAdd : goAdd}>+</button>
