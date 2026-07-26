@@ -64,3 +64,13 @@ nav { display: grid; gap: 6px; margin-top: 49px; }
 .import-expenses { display: inline-flex; align-items: center; cursor: pointer; }.import-expenses input { display: none; }
 .stat-link { appearance: none; width: 100%; border: 0; background: #191b1b; color: inherit; text-align: left; cursor: pointer; }.stat-link:hover { background: #202322; }.private-stat { cursor: pointer; }
 @media (max-width: 720px) { .schedule-add { grid-template-columns: 1fr; }.schedule-add button { min-height: 37px; } }
+.mobile-menu-toggle { display: none; }.tracker-habit { border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }.start-date, .stop-date { max-width: 310px; }.start-date small, .stop-date small { display: block; margin-top: 7px; color: #888c88; font-size: 11px; font-weight: 400; }
+@media (max-width: 720px) {
+  .mobile-menu-toggle { display: grid; place-items: center; width: 38px; height: 38px; border: 0; background: transparent; color: #e8e8e4; font-size: 24px; padding: 0; margin-right: 9px; }
+  .mobile-logo { margin-right: auto; }.page { padding-bottom: 48px; }
+  .mobile-nav { display: block; position: fixed; z-index: 30; inset: 0; pointer-events: none; background: transparent; transition: background .2s; }
+  .mobile-nav.open { pointer-events: auto; background: #0008; }.mobile-nav-backdrop { position: absolute; inset: 0; width: 100%; border: 0; background: transparent; }
+  .mobile-nav-drawer { position: relative; width: min(285px, 84vw); min-height: 100%; padding: 23px 16px; background: #171819; border-right: 1px solid #303331; transform: translateX(-100%); transition: transform .2s; overflow-y: auto; }
+  .mobile-nav.open .mobile-nav-drawer { transform: translateX(0); }.mobile-nav-drawer .nav-item { width: 100%; }.mobile-nav-close { float: right; border: 0; background: transparent; color: #c8cbc7; font-size: 27px; line-height: 1; padding: 4px 8px; }
+  .mobile-nav-drawer .nav-group:first-of-type { margin-top: 45px; }.tracker-table { min-width: 930px; }.tracker-header, .tracker-row { grid-template-columns: minmax(230px, 1.9fr) repeat(8, 76px) 42px; }
+}
