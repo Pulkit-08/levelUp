@@ -82,3 +82,4 @@ nav { display: grid; gap: 6px; margin-top: 49px; }
 .task-date-checks button { position: relative; }
 .task-card[draggable="true"] { cursor: grab; }.task-card[draggable="true"]:active { cursor: grabbing; }.task-card.dragging { opacity: .42; }.task-drag { color: #8e9690; font-size: 18px; line-height: 1; letter-spacing: -3px; cursor: grab; user-select: none; }
 .manual-order-button { border: 1px solid #3e6090; border-radius: 7px; background: #172b42; color: var(--blue-soft); min-height: 40px; padding: 0 11px; font-size: 12px; font-weight: 700; white-space: nowrap; }.manual-order-button.active { border-color: var(--blue); background: var(--blue); color: #07121d; }
+@media (min-width: 721px) { .todo-toolbar { grid-template-columns: minmax(150px, 1fr) 135px 145px 130px auto auto; } }
