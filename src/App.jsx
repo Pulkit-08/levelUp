@@ -51,6 +51,7 @@ function getStreak(habit) {
 
 function App() {
   const localSeed = useRef({ habits: stored('steady-habits', []), expenses: stored('levelup-expenses', []), todos: stored('levelup-todos', []), todoCategories: stored('levelup-todo-categories', []), paymentModes: stored('levelup-payment-modes', []), bodyWeights: stored('levelup-body-weights', []), plans: stored('levelup-wellness-plans', { diet: null, workout: null, schedule: null }), todoPrefs: applyTodoDefault(stored('levelup-todo-prefs', null)) })
+  const cloudDataInitialized = useRef(false)
   const cloudPrefsInitialized = useRef(false)
   const [habits, setHabits] = useState(() => localSeed.current.habits)
   const [expenses, setExpenses] = useState(() => localSeed.current.expenses)
@@ -131,7 +132,7 @@ function App() {
     })
   }, [])
   useEffect(() => {
-    if (!user) { cloudPrefsInitialized.current = false; return }
+    if (!user) { cloudDataInitialized.current = false; cloudPrefsInitialized.current = false; return }
     const habitsRef = doc(db, 'users', user.uid, 'habits', 'data')
     return onSnapshot(habitsRef, snapshot => {
       if (snapshot.exists()) {
@@ -139,7 +140,7 @@ function App() {
         const cloudIsEmpty = !(data.items?.length || data.expenses?.length || data.todos?.length || data.todoCategories?.length || data.bodyWeights?.length || Object.values(data.plans || {}).some(Boolean))
         const localHasData = localSeed.current.habits.length || localSeed.current.expenses.length || localSeed.current.todos.length || localSeed.current.todoCategories.length || localSeed.current.bodyWeights.length || Object.values(localSeed.current.plans).some(Boolean)
         if (cloudIsEmpty && localHasData) setDoc(habitsRef, { items: localSeed.current.habits, expenses: localSeed.current.expenses, paymentModes: data.paymentModes || defaultPaymentModes, todos: localSeed.current.todos, todoCategories: localSeed.current.todoCategories, todoPrefs: localSeed.current.todoPrefs, bodyWeights: localSeed.current.bodyWeights, plans: localSeed.current.plans })
-        else {
+        else if (!cloudDataInitialized.current) {
           // Keep a browser copy as a safety net when an older deployment has a
           // partial Firestore document. The next sync writes the merged record back.
           const mergedHabits = mergeSavedItems(localSeed.current.habits, data.items || [])
@@ -161,6 +162,7 @@ function App() {
             setTodoPrefs(current => keepIfUnchanged(current, mergedPrefs))
             cloudPrefsInitialized.current = true
           }
+          cloudDataInitialized.current = true
         }
       } else setDoc(habitsRef, { items: localSeed.current.habits, expenses: localSeed.current.expenses, paymentModes: defaultPaymentModes, todos: localSeed.current.todos, todoCategories: localSeed.current.todoCategories, todoPrefs: localSeed.current.todoPrefs, bodyWeights: localSeed.current.bodyWeights, plans: localSeed.current.plans })
       setCloudLoaded(true)
@@ -257,7 +259,41 @@ function App() {
   }
   const openTodo = task => setTodoEditor(task || { title: '', description: '', priority: 'medium', dueDate: today, dueTime: '', scheduledDates: [], category: '', tags: '', recurrence: 'none', customRecurrence: '' })
   const saveTodo = task => { const now = new Date().toISOString(); const category = String(task.category || '').trim(); if (category) setTodoCategories(items => items.some(item => item.toLowerCase() === category.toLowerCase()) ? items : [...items, category].sort((a, b) => a.localeCompare(b))); if (task.id) { setTodos(items => items.map(item => item.id === task.id ? { ...item, ...task, category, updatedAt: now } : item)); setToast('Task updated') } else { setTodos(items => [{ ...task, category, id: Date.now(), status: 'pending', createdAt: now, updatedAt: now, completedAt: null }, ...items]); setToast('Task added') }; setTodoEditor(null) }
-  const toggleTodo = id => setTodos(items => items.map(item => item.id === id ? { ...item, status: item.status === 'completed' ? 'pending' : 'completed', completedAt: item.status === 'completed' ? null : new Date().toISOString(), updatedAt: new Date().toISOString() } : item))
+  const toggleTodo = id => setTodos(items => items.map(item => {
+    if (item.id !== id) return item
+    const now = new Date().toISOString()
+    const dates = taskDates(item)
+    if (dates.length > 1) {
+      const allCompleted = dates.every(date => isTaskDateCompleted(item, date))
+      return { ...item, dateCompletions: Object.fromEntries(dates.map(date => [date, !allCompleted])), status: allCompleted ? 'pending' : 'completed', completedAt: allCompleted ? null : now, updatedAt: now }
+    }
+    return { ...item, status: item.status === 'completed' ? 'pending' : 'completed', completedAt: item.status === 'completed' ? null : now, updatedAt: now }
+  }))
+  const toggleTodoDate = (id, date) => setTodos(items => items.map(item => {
+    if (item.id !== id) return item
+    const now = new Date().toISOString()
+    const dates = taskDates(item)
+    const dateCompletions = { ...item.dateCompletions, [date]: !isTaskDateCompleted(item, date) }
+    const completed = dates.every(scheduledDate => dateCompletions[scheduledDate])
+    return { ...item, dateCompletions, status: completed ? 'completed' : 'pending', completedAt: completed ? now : null, updatedAt: now }
+  }))
+  const reorderTodos = (draggedId, targetId) => setTodos(items => {
+    if (draggedId === targetId) return items
+    const dragged = items.find(item => item.id === draggedId)
+    const withoutDragged = items.filter(item => item.id !== draggedId)
+    const targetIndex = withoutDragged.findIndex(item => item.id === targetId)
+    if (!dragged || targetIndex < 0) return items
+    withoutDragged.splice(targetIndex, 0, dragged)
+    return withoutDragged.map((item, index) => ({ ...item, manualOrder: index }))
+  })
+  const moveTodo = (id, direction) => setTodos(items => {
+    const ordered = [...items].sort((a, b) => (a.manualOrder ?? Number.MAX_SAFE_INTEGER) - (b.manualOrder ?? Number.MAX_SAFE_INTEGER) || new Date(b.createdAt) - new Date(a.createdAt))
+    const index = ordered.findIndex(item => item.id === id)
+    const destination = index + direction
+    if (index < 0 || destination < 0 || destination >= ordered.length) return items
+    ;[ordered[index], ordered[destination]] = [ordered[destination], ordered[index]]
+    return ordered.map((item, order) => ({ ...item, manualOrder: order }))
+  })
   const duplicateTodo = task => { const now = new Date().toISOString(); setTodos(items => [{ ...task, id: Date.now(), title: `${task.title} (copy)`, status: 'pending', completedAt: null, createdAt: now, updatedAt: now }, ...items]); setToast('Task duplicated') }
 
   if (firebaseReady && !authChecked) return <div className="auth-loading">Loading your space…</div>
@@ -296,7 +332,7 @@ function App() {
       {page === 'expense-stats' && <ExpenseStats expenses={filteredExpenses} allExpenses={expenses} filters={{ month: expenseMonth, setMonth: setExpenseMonth, months: expenseMonths, year: expenseYear, setYear: setExpenseYear, years: expenseYears, start: expenseStart, setStart: setExpenseStart, end: expenseEnd, setEnd: setExpenseEnd }} />}
       {page === 'expense-history' && <ExpenseHistory expenses={filteredExpenses} filters={{ month: expenseMonth, setMonth: setExpenseMonth, months: expenseMonths, year: expenseYear, setYear: setExpenseYear, years: expenseYears, start: expenseStart, setStart: setExpenseStart, end: expenseEnd, setEnd: setExpenseEnd }} />}
       {page === 'payments' && <PaymentModes modes={paymentModes} setModes={setPaymentModes} />}
-      {page === 'todos' && <TodoManager tasks={todos} prefs={todoPrefs} setPrefs={setTodoPrefs} onAdd={() => openTodo()} onEdit={openTodo} onToggle={id => { toggleTodo(id); const task = todos.find(item => item.id === id); setToast(task?.status === 'completed' ? 'Task marked incomplete' : 'Task completed') }} onDuplicate={duplicateTodo} onDelete={task => setTodoConfirm(task)} />}
+      {page === 'todos' && <TodoManager tasks={todos} prefs={todoPrefs} setPrefs={setTodoPrefs} onAdd={() => openTodo()} onEdit={openTodo} onToggle={id => { toggleTodo(id); const task = todos.find(item => item.id === id); setToast(task?.status === 'completed' ? 'Task marked incomplete' : 'Task completed') }} onToggleDate={(id, date) => { toggleTodoDate(id, date); setToast('Task day updated') }} onReorder={reorderTodos} onMove={moveTodo} onDuplicate={duplicateTodo} onDelete={task => setTodoConfirm(task)} />}
       {page === 'wellness' && <WellnessManager plans={plans} setPlans={setPlans} weights={bodyWeights} setWeights={setBodyWeights} notify={setToast} />}
       {page === 'history' && <History habits={habits} />}
       {page === 'settings' && <section className="page simple-page"><p className="eyebrow">PREFERENCES</p><h1>Settings</h1><p>Your habits are stored securely in this browser.</p></section>}
@@ -331,10 +367,12 @@ const startOfDay = value => { const d = new Date(`${value}T00:00:00`); d.setHour
 // A due date and added schedule dates are both valid task dates. Previously, a
 // scheduled date could hide the main due date from month and view filtering.
 const taskDates = task => [...new Set([task.dueDate, ...(task.scheduledDates || [])].filter(Boolean))]
+const isTaskDateCompleted = (task, date) => task.dateCompletions?.[date] ?? task.status === 'completed'
 const relativeDue = task => { const date = taskDates(task).sort()[0]; if (!date) return 'No due date'; const diff = Math.round((startOfDay(date) - startOfDay(today)) / 86400000); if (diff < 0) return `${Math.abs(diff)}d overdue`; if (!diff) return task.dueTime ? `Today · ${task.dueTime}` : 'Today'; if (diff === 1) return 'Tomorrow'; return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(startOfDay(date)) }
 
-function TodoManager({ tasks, prefs, setPrefs, onAdd, onEdit, onToggle, onDuplicate, onDelete }) {
+function TodoManager({ tasks, prefs, setPrefs, onAdd, onEdit, onToggle, onToggleDate, onReorder, onMove, onDuplicate, onDelete }) {
   const [search, setSearch] = useState('')
+  const [draggedTask, setDraggedTask] = useState(null)
   const filters = [['all', 'All Tasks'], ['pending', 'Pending'], ['completed', 'Completed'], ['high', 'High Priority'], ['medium', 'Medium Priority'], ['low', 'Low Priority'], ['today', 'Today'], ['tomorrow', 'Tomorrow'], ['week', 'This Week'], ['month', 'This Month'], ['overdue', 'Overdue']]
   const taskMonths = [...new Set(tasks.flatMap(task => {
     const dates = taskDates(task)
@@ -358,6 +396,7 @@ function TodoManager({ tasks, prefs, setPrefs, onAdd, onEdit, onToggle, onDuplic
     return diffs.some(diff => diff < 0) && task.status !== 'completed'
   }
   const shown = tasks.filter(filterTask).sort((a, b) => {
+    if (prefs.sort === 'manual') return (a.manualOrder ?? Number.MAX_SAFE_INTEGER) - (b.manualOrder ?? Number.MAX_SAFE_INTEGER) || new Date(b.createdAt) - new Date(a.createdAt)
     if (prefs.sort === 'priority') return priorityRank[a.priority] - priorityRank[b.priority]
     if (prefs.sort === 'alphabetical') return a.title.localeCompare(b.title)
     if (prefs.sort === 'created') return new Date(b.createdAt) - new Date(a.createdAt)
@@ -381,17 +420,28 @@ function TodoManager({ tasks, prefs, setPrefs, onAdd, onEdit, onToggle, onDuplic
   const weekDone = completed.filter(task => task.completedAt && Math.floor((Date.now() - new Date(task.completedAt)) / 86400000) < 7).length
   const monthDone = completed.filter(task => task.completedAt?.slice(0, 7) === today.slice(0, 7)).length
   const dates = new Set(completed.map(task => task.completedAt?.slice(0, 10)).filter(Boolean)); let streak = 0; for (let d = new Date(); dates.has(dateKey(d)); d.setDate(d.getDate() - 1)) streak++; const completedDays = [...dates].sort(); let longest = 0; let run = 0; let previous = null; completedDays.forEach(day => { if (previous && Math.round((startOfDay(day) - startOfDay(previous)) / 86400000) === 1) run++; else run = 1; longest = Math.max(longest, run); previous = day })
-  const calendarTasks = [...viewTasks].sort((a, b) => (taskDates(a).sort()[0]).localeCompare(taskDates(b).sort()[0]))
+  const calendarTasks = prefs.sort === 'manual' ? viewTasks : [...viewTasks].sort((a, b) => (taskDates(a).sort()[0]).localeCompare(taskDates(b).sort()[0]))
   return <section className="page todo-page"><div className="todo-heading"><div><p className="eyebrow">TODO MANAGER</p><h1>Plan with <em>purpose.</em></h1><p className="subcopy">{tasks.length} tasks · {tasks.filter(t => t.status === 'pending').length} still in motion</p></div><button className="save" onClick={onAdd}>+ New task</button></div>
     <div className="todo-stats"><TodoStat label="Total Tasks" value={tasks.length} /><TodoStat label="Completed" value={completed.length} /><TodoStat label="Pending" value={tasks.length - completed.length} /><TodoStat label="Completion" value={`${tasks.length ? Math.round(completed.length / tasks.length * 100) : 0}%`} /><TodoStat label="Today" value={todayDone} /><TodoStat label="Weekly" value={weekDone} /><TodoStat label="Monthly" value={monthDone} /><TodoStat label="Current Streak" value={`${streak}d`} /><TodoStat label="Longest Streak" value={`${longest}d`} /></div>
-    <div className="todo-toolbar"><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search title or description…" aria-label="Search tasks" /><select value={prefs.month} onChange={e => setPrefs(p => ({ ...p, month: e.target.value, view: e.target.value === 'all' ? 'calendar' : 'monthly', filter: ['today', 'tomorrow', 'week', 'month', 'overdue'].includes(p.filter) ? 'all' : p.filter }))} aria-label="Filter tasks by month"><option value="all">All months</option>{taskMonths.map(month => <option key={month} value={month}>{monthLabel(month)}</option>)}</select><select value={prefs.sort} onChange={e => setPrefs(p => ({ ...p, sort: e.target.value }))}><option value="due">Due Date</option><option value="created">Created Date</option><option value="priority">Priority</option><option value="alphabetical">Alphabetical</option><option value="updated">Recently Updated</option></select><div className="view-switch">{['daily', 'weekly', 'monthly', 'yearly', 'calendar'].map(view => <button key={view} className={prefs.view === view ? 'selected' : ''} onClick={() => setPrefs(p => ({ ...p, view, filter: ['today', 'tomorrow', 'week', 'month', 'overdue'].includes(p.filter) ? 'all' : p.filter }))}>{view}</button>)}</div></div>
+    <div className="todo-toolbar"><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search title or description…" aria-label="Search tasks" /><select value={prefs.month} onChange={e => setPrefs(p => ({ ...p, month: e.target.value, view: e.target.value === 'all' ? 'calendar' : 'monthly', filter: ['today', 'tomorrow', 'week', 'month', 'overdue'].includes(p.filter) ? 'all' : p.filter }))} aria-label="Filter tasks by month"><option value="all">All months</option>{taskMonths.map(month => <option key={month} value={month}>{monthLabel(month)}</option>)}</select><select value={prefs.sort} onChange={e => setPrefs(p => ({ ...p, sort: e.target.value }))}><option value="manual">Manual order</option><option value="due">Due Date</option><option value="created">Created Date</option><option value="priority">Priority</option><option value="alphabetical">Alphabetical</option><option value="updated">Recently Updated</option></select><button className={`manual-order-button ${prefs.sort === 'manual' ? 'active' : ''}`} onClick={() => setPrefs(p => ({ ...p, sort: 'manual' }))}>↕ Reorder tasks</button><div className="view-switch">{['daily', 'weekly', 'monthly', 'yearly', 'calendar'].map(view => <button key={view} className={prefs.view === view ? 'selected' : ''} onClick={() => setPrefs(p => ({ ...p, view, filter: ['today', 'tomorrow', 'week', 'month', 'overdue'].includes(p.filter) ? 'all' : p.filter }))}>{view}</button>)}</div></div>
     <div className="todo-filters">{filters.map(([id, label]) => <button key={id} className={prefs.filter === id ? 'selected' : ''} onClick={() => setPrefs(p => ({ ...p, filter: id }))}>{label}</button>)}</div>
-    {prefs.view === 'calendar' ? <div className="todo-calendar">{calendarTasks.length ? calendarTasks.map(task => <TaskCard key={task.id} task={task} onToggle={onToggle} onEdit={onEdit} onDuplicate={onDuplicate} onDelete={onDelete} calendar />) : <EmptyTasks onAdd={onAdd} />}</div> : <div className="todo-list">{viewTasks.length ? viewTasks.map(task => <TaskCard key={task.id} task={task} onToggle={onToggle} onEdit={onEdit} onDuplicate={onDuplicate} onDelete={onDelete} />) : <EmptyTasks onAdd={onAdd} />}</div>}
+    {prefs.view === 'calendar' ? <div className="todo-calendar">{calendarTasks.length ? calendarTasks.map(task => <TaskCard key={task.id} task={task} onToggle={onToggle} onToggleDate={onToggleDate} onEdit={onEdit} onDuplicate={onDuplicate} onDelete={onDelete} calendar draggable={prefs.sort === 'manual'} dragged={draggedTask === task.id} onDragStart={() => setDraggedTask(task.id)} onDrop={() => { if (draggedTask) onReorder(draggedTask, task.id); setDraggedTask(null) }} onMove={onMove} />) : <EmptyTasks onAdd={onAdd} />}</div> : <div className="todo-list">{viewTasks.length ? viewTasks.map(task => <TaskCard key={task.id} task={task} onToggle={onToggle} onToggleDate={onToggleDate} onEdit={onEdit} onDuplicate={onDuplicate} onDelete={onDelete} draggable={prefs.sort === 'manual'} dragged={draggedTask === task.id} onDragStart={() => setDraggedTask(task.id)} onDrop={() => { if (draggedTask) onReorder(draggedTask, task.id); setDraggedTask(null) }} onMove={onMove} />) : <EmptyTasks onAdd={onAdd} />}</div>}
   </section>
 }
 function TodoStat({ label, value }) { return <article><strong>{value}</strong><span>{label}</span></article> }
 function EmptyTasks({ onAdd }) { return <button className="empty todo-empty" onClick={onAdd}>No tasks found. Add a task to get moving.</button> }
-function TaskCard({ task, onToggle, onEdit, onDuplicate, onDelete, calendar }) { const scheduled = taskDates(task); return <article className={`task-card ${task.status === 'completed' ? 'done' : ''} ${calendar ? 'calendar-task' : ''}`}><button className="task-check" onClick={() => onToggle(task.id)} aria-label={task.status === 'completed' ? 'Mark incomplete' : 'Mark complete'}>{task.status === 'completed' ? '✓' : ''}</button><div className="task-main"><div className="task-title-row"><h3>{task.title}</h3><span className={`priority ${task.priority}`}>{task.priority}</span></div>{task.description && <p>{task.description}</p>}<div className="task-meta"><span className={scheduled.some(date => date < today) && task.status !== 'completed' ? 'overdue' : ''}>{relativeDue(task)}</span>{scheduled.length > 1 && <span>Scheduled: {scheduled.map(date => new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(startOfDay(date))).join(', ')}</span>}{task.category && <span>{task.category}</span>}{task.tags?.split(',').filter(Boolean).map(tag => <span key={tag}>#{tag.trim()}</span>)}{task.recurrence !== 'none' && <span>↻ {task.recurrence === 'custom' ? task.customRecurrence || 'custom' : task.recurrence}</span>}{task.completedAt && <span>Completed {new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(task.completedAt))}</span>}</div></div><div className="task-actions"><button onClick={() => onEdit(task)}>Edit</button><button onClick={() => onDuplicate(task)}>Duplicate</button><button className="danger" onClick={() => onDelete(task)}>Delete</button></div></article> }
+function TaskCard({ task, onToggle, onToggleDate, onEdit, onDuplicate, onDelete, calendar, draggable, dragged, onDragStart, onDrop, onMove }) {
+  const scheduled = taskDates(task)
+  const isMultiDate = scheduled.length > 1
+  const completedDates = scheduled.filter(date => isTaskDateCompleted(task, date)).length
+  return <article draggable={draggable} onDragStart={event => { if (draggable) { event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', String(task.id)); onDragStart() } }} onDragOver={event => { if (draggable) { event.preventDefault(); event.dataTransfer.dropEffect = 'move' } }} onDrop={event => { if (draggable) { event.preventDefault(); onDrop() } }} className={`task-card ${task.status === 'completed' ? 'done' : ''} ${calendar ? 'calendar-task' : ''} ${dragged ? 'dragging' : ''}`}>
+    <button className="task-check" onClick={() => onToggle(task.id)} aria-label={task.status === 'completed' ? 'Mark incomplete' : 'Mark complete'}>{task.status === 'completed' ? '✓' : ''}</button>
+    <div className="task-main"><div className="task-title-row"><h3>{task.title}</h3><span className={`priority ${task.priority}`}>{task.priority}</span></div>{task.description && <p>{task.description}</p>}
+      {isMultiDate && <div className="task-date-checks"><span>{completedDates}/{scheduled.length} days done</span><div>{scheduled.map(date => <button key={date} className={isTaskDateCompleted(task, date) ? 'checked' : ''} onClick={() => onToggleDate(task.id, date)} aria-label={`Toggle ${task.title} for ${date}`}><small>{new Intl.DateTimeFormat('en-US', { weekday: 'short' }).format(startOfDay(date))}</small><b>{startOfDay(date).getDate()}</b></button>)}</div></div>}
+      <div className="task-meta"><span className={scheduled.some(date => date < today) && task.status !== 'completed' ? 'overdue' : ''}>{relativeDue(task)}</span>{task.category && <span>{task.category}</span>}{task.tags?.split(',').filter(Boolean).map(tag => <span key={tag}>#{tag.trim()}</span>)}{task.recurrence !== 'none' && <span>↻ {task.recurrence === 'custom' ? task.customRecurrence || 'custom' : task.recurrence}</span>}{task.completedAt && <span>Completed {new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(task.completedAt))}</span>}</div>
+    </div><div className="task-actions">{draggable && <><span className="task-drag" title="Drag to reorder">⠿</span><button className="task-move" onClick={() => onMove(task.id, -1)} title="Move task up" aria-label="Move task up">↑</button><button className="task-move" onClick={() => onMove(task.id, 1)} title="Move task down" aria-label="Move task down">↓</button></>}<button onClick={() => onEdit(task)}>Edit</button><button onClick={() => onDuplicate(task)}>Duplicate</button><button className="danger" onClick={() => onDelete(task)}>Delete</button></div>
+  </article>
+}
 function TodoEditor({ task, categories, onSave, onClose }) { const [form, setForm] = useState({ ...task, category: task.category || '', scheduledDates: task.scheduledDates || [] }); const [scheduleDate, setScheduleDate] = useState(task.dueDate || today); const update = (key, value) => setForm(f => ({ ...f, [key]: value })); const addDate = () => { if (!scheduleDate) return; const dates = [...new Set([...form.scheduledDates, scheduleDate])].sort(); setForm(f => ({ ...f, scheduledDates: dates, dueDate: dates[0] })); }; const removeDate = date => { const dates = form.scheduledDates.filter(item => item !== date); setForm(f => ({ ...f, scheduledDates: dates, dueDate: dates[0] || f.dueDate })) }; return <div className="modal-backdrop" role="dialog" aria-modal="true"><form className="todo-editor" onSubmit={e => { e.preventDefault(); if (form.title.trim()) onSave({ ...form, title: form.title.trim() }) }}><div className="modal-head"><div><p className="eyebrow">{task.id ? 'EDIT TASK' : 'NEW TASK'}</p><h2>{task.id ? 'Make a change' : 'What needs doing?'}</h2></div><button type="button" onClick={onClose}>×</button></div><label>Title<input autoFocus required value={form.title} onChange={e => update('title', e.target.value)} placeholder="Task title" /></label><label>Description<textarea value={form.description} onChange={e => update('description', e.target.value)} placeholder="Add a little context…" /></label><div className="form-grid"><label>Priority<select value={form.priority} onChange={e => update('priority', e.target.value)}><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select></label><label>Category<input list="todo-categories" value={form.category} onChange={e => update('category', e.target.value)} placeholder="Work, Personal…" /><datalist id="todo-categories">{categories.map(category => <option key={category} value={category} />)}</datalist><small>Enter a new category or choose one you used before.</small></label><label>Due date<input type="date" value={form.dueDate} onChange={e => update('dueDate', e.target.value)} /></label><label>Due time<input type="time" value={form.dueTime} onChange={e => update('dueTime', e.target.value)} /></label></div><div className="schedule-picker"><div><b>Specific task dates</b><small>Add each day this task should appear, such as 27, 29 and 31.</small></div><div className="schedule-add"><input type="date" value={scheduleDate} onChange={e => setScheduleDate(e.target.value)} /><button type="button" onClick={addDate}>+ Add date</button></div>{form.scheduledDates.length > 0 && <div className="date-chips">{form.scheduledDates.map(date => <button type="button" key={date} onClick={() => removeDate(date)}>{new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(startOfDay(date))} ×</button>)}</div>}</div><label>Tags <small>Separate tags with commas</small><input value={form.tags} onChange={e => update('tags', e.target.value)} placeholder="focus, home" /></label><div className="form-grid"><label>Repeat<select value={form.recurrence} onChange={e => update('recurrence', e.target.value)}><option value="none">Does not repeat</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option><option value="custom">Custom</option></select></label>{form.recurrence === 'custom' && <label>Custom schedule<input value={form.customRecurrence} onChange={e => update('customRecurrence', e.target.value)} placeholder="e.g. Every 3 days" /></label>}</div><div className="modal-actions"><button type="button" className="cancel" onClick={onClose}>Cancel</button><button className="save">{task.id ? 'Save changes' : 'Add task'}</button></div></form></div> }
 function ConfirmDialog({ task, onCancel, onConfirm }) { return <div className="modal-backdrop"><section className="confirm-dialog"><p className="eyebrow">DELETE TASK</p><h2>Delete “{task.title}”?</h2><p>This can’t be undone.</p><div className="modal-actions"><button className="cancel" onClick={onCancel}>Cancel</button><button className="delete-button" onClick={onConfirm}>Delete task</button></div></section></div> }
 function WellnessManager({ plans, setPlans, weights, setWeights, notify }) {
